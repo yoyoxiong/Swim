@@ -1,7 +1,7 @@
 /**
- * 硅基流动聊天模型配置
+ * DeepSeek 官方聊天模型配置
  *
- * @see https://docs.siliconflow.cn/api-reference/chat-completions/chat-completions
+ * @see https://api-docs.deepseek.com/api/create-chat-completion
  */
 
 export interface Model {
@@ -13,9 +13,9 @@ export interface Model {
   description: string
   /** 模型类别 */
   category: 'reasoning' | 'chat' | 'code' | 'vision'
-  /** 是否为原生推理模型（只用 thinking_budget） */
+  /** 是否固定开启推理模式 */
   isReasoningModel: boolean
-  /** 是否支持 enable_thinking 参数 */
+  /** 是否支持思考模式开关 */
   supportsThinkingToggle: boolean
   /** 是否为默认模型 */
   default?: boolean
@@ -28,20 +28,20 @@ export interface Model {
  */
 export const CHAT_MODELS: Model[] = [
   {
-    id: 'moonshotai/Kimi-K2-Thinking',
-    name: 'Kimi-K2 Thinking',
-    description: '工具调用最稳定',
-    category: 'reasoning',
-    isReasoningModel: true,
-    supportsThinkingToggle: false,
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    description: '速度优先，支持思考模式',
+    category: 'chat',
+    isReasoningModel: false,
+    supportsThinkingToggle: true,
     default: true,
     maxTokens: 8192,
   },
   {
-    id: 'deepseek-ai/DeepSeek-V3.2',
-    name: 'DeepSeek-V3.2',
-    description: '最新版本',
-    category: 'chat',
+    id: 'deepseek-v4-pro',
+    name: 'DeepSeek V4 Pro',
+    description: '能力优先，支持思考模式',
+    category: 'reasoning',
     isReasoningModel: false,
     supportsThinkingToggle: true,
     maxTokens: 8192,

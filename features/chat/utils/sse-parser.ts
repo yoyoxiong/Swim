@@ -21,10 +21,6 @@ export class SSEParser {
    * 解析单行 SSE 数据
    */
   static parseLine(line: string): SSEData | null {
-    if (line.startsWith('data: ') && line.slice(6).trim() === '[DONE]') {
-      return { type: 'complete' }
-    }
-
     const data = parseSSELine(line)
     if (!data) return null
 

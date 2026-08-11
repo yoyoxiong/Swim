@@ -11,35 +11,27 @@ import { ConversationAPI } from '@/features/chat/services/conversation-api'
 import { SSEParser } from '@/features/chat/utils/sse-parser'
 import { StreamBuffer } from '@/features/chat/utils/stream-buffer'
 import type { Message, FileAttachment } from '@/features/chat/types/chat'
-import {
-  startTrace,
-  endTrace,
-  getCurrentTraceId,
-  recordFirstChunk,
-  recordChunk,
-  startPhase,
-  endPhase,
-  startToolWithId,
-  endTool,
-} from '@/lib/monitor/trace-helper'
 
 // 用于取消请求
 let loadAbortController: AbortController | null = null
 let streamAbortController: AbortController | null = null
+export type SendMessageResult =
+  | 'success'
+  | 'aborted'
+  | 'network-error'
+  | 'server-error'
+  | 'skipped'
 
 export const ChatService = {
   /**
    * 中断当前流式请求
    */
   abortStream(): void {
-    // ========== 埋点：先结束 Trace ==========
-    endTrace('abort', 'user_cancel')
-
     if (streamAbortController) {
       streamAbortController.abort()
       streamAbortController = null
     }
-    
+
     // 更新状态机：将当前流式消息的状态转为 idle
     const store = useChatStore.getState()
     const messageId = store.streamingMessageId
@@ -59,11 +51,11 @@ export const ChatService = {
           }
         }
       }
-      
+
       // 状态机转到 idle
       store.transitionPhase(messageId, { type: 'COMPLETE' })
       store.updateMessage(messageId, { displayState: 'idle' })
-      
+
       // 保存已接收的内容到数据库
       const message = store.messages.find((m) => m.id === messageId)
       if (message) {
@@ -75,7 +67,9 @@ export const ChatService = {
             thinking: message.thinking || '',
             toolInvocations: message.toolInvocations || [],
           }),
-        }).catch((e) => console.error('[ChatService] Failed to save partial message:', e))
+        }).catch((e) =>
+          console.error('[ChatService] Failed to save partial message:', e)
+        )
       }
     }
   },
@@ -84,7 +78,11 @@ export const ChatService = {
    * 取消指定工具的执行
    * @param abortStream - 是否同时中断整个流（默认 false）
    */
-  async cancelTool(messageId: string, toolCallId: string, abortStream = false): Promise<boolean> {
+  async cancelTool(
+    messageId: string,
+    toolCallId: string,
+    abortStream = false
+  ): Promise<boolean> {
     try {
       const response = await fetch('/api/chat/cancel-tool', {
         method: 'POST',
@@ -92,17 +90,17 @@ export const ChatService = {
         body: JSON.stringify({ toolCallId }),
       })
       const data = await response.json()
-      
+
       if (data.success) {
         const store = useChatStore.getState()
         store.cancelTool(messageId, toolCallId)
-        
+
         // 如果需要中断整个流
         if (abortStream) {
           this.abortStream()
         }
       }
-      
+
       return data.success
     } catch (e) {
       console.error('[ChatService] cancelTool failed:', e)
@@ -158,14 +156,16 @@ export const ChatService = {
       store.setMessages(unique)
     } catch (e) {
       if ((e as Error).name === 'AbortError') return
-      
+
       // 404 时跳转到首页
       if ((e as { status?: number }).status === 404) {
-        console.warn('[ChatService] Conversation not found, redirecting to home')
+        console.warn(
+          '[ChatService] Conversation not found, redirecting to home'
+        )
         window.location.href = '/'
         return
       }
-      
+
       // 静默失败，保持缓存数据
       console.error('[ChatService] loadMessages failed:', e)
     } finally {
@@ -183,27 +183,43 @@ export const ChatService = {
     options: {
       createUserMessage?: boolean
       attachments?: FileAttachment[]
+      retry?: {
+        userMessageId: string
+        aiMessageId: string
+      }
       enableImageGeneration?: boolean
-      imageConfig?: { prompt: string; negative_prompt?: string; image_size: string }
-      previousTraceId?: string
+      imageConfig?: {
+        prompt: string
+        negative_prompt?: string
+        image_size: string
+      }
     } = {}
-  ): Promise<void> {
-    const { createUserMessage = true, attachments, enableImageGeneration, imageConfig, previousTraceId } = options
+  ): Promise<SendMessageResult> {
+    const {
+      createUserMessage = true,
+      attachments,
+      enableImageGeneration,
+      imageConfig,
+      retry,
+    } = options
     const store = useChatStore.getState()
 
-    console.log('[ChatService] sendMessage called:', { content, conversationId, isSendingMessage: store.isSendingMessage })
+    console.log('[ChatService] sendMessage called:', {
+      content,
+      conversationId,
+      isSendingMessage: store.isSendingMessage,
+    })
 
     if (store.isSendingMessage) {
       console.log('[ChatService] Already sending, skipping')
-      return
+      return 'skipped'
     }
     store.setSendingMessage(true)
 
-    const userMessageId = createUserMessage ? nanoid() : undefined
-    const aiMessageId = nanoid()
+    const userMessageId =
+      retry?.userMessageId ?? (createUserMessage ? nanoid() : undefined)
 
-    // ========== 埋点：创建并启动 Trace ==========
-    startTrace(aiMessageId, previousTraceId)
+    const aiMessageId = retry?.aiMessageId ?? nanoid()
 
     // 添加用户消息
     if (createUserMessage && userMessageId) {
@@ -216,18 +232,24 @@ export const ChatService = {
       })
     }
 
-    // 添加 AI 占位消息
-    console.log('[ChatService] Adding AI message:', aiMessageId)
-    store.addMessage({
-      id: aiMessageId,
-      role: 'assistant',
-      content: '',
-      thinking: '',
-      displayState: 'waiting',
-    })
-    
-    console.log('[ChatService] Messages after add:', useChatStore.getState().messages.length)
+    // 普通发送时创建新的 AI 占位消息
+    // 重试时原 AI 消息仍然存在，不需要重复添加
+    if (!retry) {
+      console.log('[ChatService] Adding AI message:', aiMessageId)
+      store.addMessage({
+        id: aiMessageId,
+        role: 'assistant',
+        content: '',
+        thinking: '',
+        displayState: 'waiting',
+      })
+    }
 
+    console.log(
+      '[ChatService] Messages after add:',
+      useChatStore.getState().messages.length
+    )
+    let responseReceived = false
     try {
       // 创建 AbortController 用于中断
       streamAbortController = new AbortController()
@@ -238,6 +260,7 @@ export const ChatService = {
         body: JSON.stringify({
           content,
           conversationId,
+          retry: Boolean(retry),
           model: store.selectedModel,
           enableThinking: store.enableThinking,
           enableWebSearch: store.enableWebSearch,
@@ -250,7 +273,7 @@ export const ChatService = {
         }),
         signal: streamAbortController.signal,
       })
-
+      responseReceived = true
       if (!response.ok) throw new Error(`API error: ${response.status}`)
 
       // 读取响应头中的标题更新，立即同步到前端 store
@@ -258,7 +281,9 @@ export const ChatService = {
       if (newTitle) {
         const decodedTitle = decodeURIComponent(newTitle)
         // 动态导入避免循环依赖
-        const { useConversationStore } = await import('@/features/conversation/store/conversation-store')
+        const { useConversationStore } = await import(
+          '@/features/conversation/store/conversation-store'
+        )
         // 直接更新本地 store（不调用 API，因为后端已经更新了）
         useConversationStore.setState((state) => ({
           conversations: state.conversations.map((c) =>
@@ -274,18 +299,54 @@ export const ChatService = {
       if (!reader) throw new Error('No reader')
 
       await this.handleStream(reader, aiMessageId)
+      return 'success'
     } catch (e) {
-      // AbortError 是正常中断，不算错误
+      // 用户主动停止不是发送失败
       if ((e as Error).name === 'AbortError') {
-        store.updateMessage(aiMessageId, { displayState: 'idle' })
-        // 注意：AbortError 不在这里埋点，因为 abortStream() 已经埋点了
-        return
+        store.updateMessage(aiMessageId, {
+          displayState: 'idle',
+        })
+        return 'aborted'
       }
-      console.error('[ChatService] sendMessage failed:', e)
-      store.updateMessage(aiMessageId, { hasError: true, displayState: 'error' })
+
+      const result: SendMessageResult = responseReceived
+        ? 'server-error'
+        : 'network-error'
+
+      console.error('[ChatService] sendMessage failed:', {
+        result,
+        error: e,
+      })
+
+      if (
+        result === 'network-error' &&
+        createUserMessage &&
+        userMessageId &&
+        !retry
+      ) {
+        // 请求没有收到任何响应：
+        // 回滚本次乐观添加的用户消息和 AI 占位消息
+        const latestStore = useChatStore.getState()
+
+        const userMessageIndex = latestStore.messages.findIndex(
+          (message) => message.id === userMessageId
+        )
+
+        if (userMessageIndex !== -1) {
+          latestStore.removeMessagesFrom(userMessageIndex)
+        }
+      } else {
+        // 服务器已经响应，或者这是对已有 AI 的重试：
+        // 暂时保留消息并显示错误状态
+        store.updateMessage(aiMessageId, {
+          hasError: true,
+          displayState: 'error',
+        })
+      }
+
       store.stopStreaming()
-      // ========== 埋点：错误结束 ==========
-      endTrace('error', (e as Error).message)
+
+      return result
     } finally {
       streamAbortController = null
       store.setSendingMessage(false)
@@ -310,43 +371,25 @@ export const ChatService = {
 
     // 创建两个独立的 buffer：thinking 和 answer
     const thinkingBuffer = new StreamBuffer({
-      onFlush: (content) => useChatStore.getState().appendThinking(messageId, content),
+      onFlush: (content) =>
+        useChatStore.getState().appendThinking(messageId, content),
     })
 
     const answerBuffer = new StreamBuffer({
-      onFlush: (content) => useChatStore.getState().appendContent(messageId, content),
+      onFlush: (content) =>
+        useChatStore.getState().appendContent(messageId, content),
     })
-
-    // ========== 埋点状态 ==========
-    let isFirstChunk = true
-    let currentPhase: 'thinking' | 'answer' | null = null
-    let traceEnded = false
 
     try {
       await SSEParser.parseStream(reader, {
         onData: (data) => {
           const s = useChatStore.getState()
 
-          // ========== 埋点：首个 chunk ==========
-          if (isFirstChunk) {
-            recordFirstChunk()
-            isFirstChunk = false
-          }
-
-          // ========== 埋点：每个 chunk（stall 检测） ==========
-          recordChunk()
-
           if (data.type === 'thinking' && data.content) {
             if (s.streamingPhase !== 'thinking') {
               s.startStreaming(messageId, 'thinking')
               s.transitionPhase(messageId, { type: 'START_THINKING' })
               s.updateMessage(messageId, { displayState: 'streaming' })
-              // ========== 埋点：阶段切换 ==========
-              if (currentPhase && currentPhase !== 'thinking') {
-                endPhase(currentPhase)
-              }
-              startPhase('thinking')
-              currentPhase = 'thinking'
             }
             thinkingBuffer.append(data.content)
           } else if (data.type === 'answer' && data.content) {
@@ -354,18 +397,12 @@ export const ChatService = {
               s.startStreaming(messageId, 'answer')
               s.transitionPhase(messageId, { type: 'START_ANSWERING' })
               s.updateMessage(messageId, { displayState: 'streaming' })
-              // ========== 埋点：阶段切换 ==========
-              if (currentPhase && currentPhase !== 'answer') {
-                endPhase(currentPhase)
-              }
-              startPhase('answer')
-              currentPhase = 'answer'
             }
             answerBuffer.append(data.content)
           } else if (data.type === 'tool_call') {
             // 工具调用开始
             const toolCallId = data.toolCallId || nanoid()
-            
+
             // 状态机：转换到 tool_calling
             s.transitionPhase(messageId, {
               type: 'START_TOOL_CALL',
@@ -374,12 +411,6 @@ export const ChatService = {
               args: { query: data.query, prompt: data.prompt },
             })
 
-            // ========== 埋点：工具开始 ==========
-            startToolWithId(toolCallId, data.name || 'unknown', {
-              query: data.query,
-              prompt: data.prompt,
-            })
-            
             const msg = s.messages.find((m) => m.id === messageId)
             const invocations = msg?.toolInvocations || []
             const newInvocation = {
@@ -404,7 +435,12 @@ export const ChatService = {
                 progress: data.progress,
                 estimatedTime: data.estimatedTime,
               })
-              s.updateToolProgress(messageId, data.toolCallId, data.progress, data.estimatedTime)
+              s.updateToolProgress(
+                messageId,
+                data.toolCallId,
+                data.progress,
+                data.estimatedTime
+              )
             }
           } else if (data.type === 'tool_result') {
             // 状态机：工具完成
@@ -419,17 +455,6 @@ export const ChatService = {
               },
             })
 
-            // ========== 埋点：工具结束 ==========
-            endTool(data.name || 'unknown', {
-              toolCallId: data.toolCallId,
-              success: data.success ?? false,
-              imageUrl: data.imageUrl,
-              width: data.width,
-              height: data.height,
-              resultCount: data.resultCount,
-              sources: data.sources,
-            })
-
             const msg = s.messages.find((m) => m.id === messageId)
             const invocations = msg?.toolInvocations || []
             const updatedInvocations = invocations.map((inv) => {
@@ -439,7 +464,9 @@ export const ChatService = {
               if (isMatch) {
                 return {
                   ...inv,
-                  state: data.success ? ('completed' as const) : ('failed' as const),
+                  state: data.success
+                    ? ('completed' as const)
+                    : ('failed' as const),
                   result: {
                     success: data.success ?? false,
                     imageUrl: data.imageUrl,
@@ -454,12 +481,16 @@ export const ChatService = {
             })
 
             // 图片生成完成时，直接插入图片到 content 流
-            if (data.name === 'generate_image' && data.success && data.imageUrl) {
+            if (
+              data.name === 'generate_image' &&
+              data.success &&
+              data.imageUrl
+            ) {
               const imageData = JSON.stringify({
                 url: data.imageUrl,
                 alt:
-                  invocations.find((inv) => inv.toolCallId === data.toolCallId)?.args?.prompt ||
-                  '生成的图片',
+                  invocations.find((inv) => inv.toolCallId === data.toolCallId)
+                    ?.args?.prompt || '生成的图片',
                 width: data.width || 512,
                 height: data.height || 512,
               })
@@ -478,11 +509,6 @@ export const ChatService = {
             s.transitionPhase(messageId, { type: 'COMPLETE' })
             s.stopStreaming()
             s.updateMessage(messageId, { displayState: 'idle' })
-
-            // ========== 埋点：完成 ==========
-            if (currentPhase) endPhase(currentPhase)
-            endTrace('complete')
-            traceEnded = true
           }
         },
         onError: (error) => {
@@ -490,25 +516,25 @@ export const ChatService = {
           thinkingBuffer.forceFlush()
           answerBuffer.forceFlush()
           const s = useChatStore.getState()
-          s.transitionPhase(messageId, { type: 'ERROR', message: error.message })
+          s.transitionPhase(messageId, {
+            type: 'ERROR',
+            message: error.message,
+          })
           s.updateMessage(messageId, { hasError: true, displayState: 'error' })
           s.stopStreaming()
-          // ========== 埋点：错误 ==========
-          if (currentPhase) endPhase(currentPhase)
-          endTrace('error', error.message)
-          traceEnded = true
         },
         onComplete: () => {
+          const s = useChatStore.getState()
+
+          // 正常 complete 已经处理完毕，不再重复更新
+          if (s.streamingMessageId !== messageId) return
+
+          // 没有收到业务 complete 就结束了：
+          // 作为流关闭或中断时的兜底清理
           thinkingBuffer.forceFlush()
           answerBuffer.forceFlush()
-          const s = useChatStore.getState()
           s.stopStreaming()
           s.updateMessage(messageId, { displayState: 'idle' })
-          // ========== 埋点：完成（如果还没结束） ==========
-          if (!traceEnded) {
-            if (currentPhase) endPhase(currentPhase)
-            endTrace('complete')
-          }
         },
       })
     } finally {
@@ -518,46 +544,67 @@ export const ChatService = {
   },
 
   /**
-   * 重试消息
+   * 重试指定的 AI 消息
    */
   async retryMessage(conversationId: string, messageId: string): Promise<void> {
     const store = useChatStore.getState()
 
-    // ========== 埋点：获取当前 Trace ID ==========
-    const previousTraceId = getCurrentTraceId()
-
-    if (store.streamingMessageId) {
-      store.stopStreaming('user_retry')
+    // 正在发送或流式生成时，不允许同时发起另一次重试
+    if (store.isSendingMessage || store.streamingMessageId) {
+      return
     }
 
-    const index = store.messages.findIndex((m) => m.id === messageId)
-    if (index === -1) return
+    const aiIndex = store.messages.findIndex(
+      (message) => message.id === messageId
+    )
 
-    const message = store.messages[index]
-    if (message.role !== 'assistant') return
+    if (aiIndex === -1) return
 
-    // 删除从该消息开始的所有消息
-    const removed = store.removeMessagesFrom(index)
-    const idsToDelete = removed.map((m) => m.id)
+    const aiMessage = store.messages[aiIndex]
 
-    // 找到最后一条用户消息
-    const lastUserMsg = [...store.messages].reverse().find((m) => m.role === 'user')
-    if (!lastUserMsg) return
+    if (aiMessage.role !== 'assistant') return
 
-    // 后台删除数据库记录
-    if (idsToDelete.length > 0) {
-      fetch('/api/messages/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageIds: idsToDelete }),
-      }).catch(console.error)
+    // 正常对话结构中，AI 前一条应该是对应的用户消息
+    const userMessage = store.messages[aiIndex - 1]
+
+    if (!userMessage || userMessage.role !== 'user') {
+      console.error(
+        '[ChatService] Retry failed: corresponding user message not found'
+      )
+      return
     }
 
-    // ========== 埋点：传入 previousTraceId ==========
-    await this.sendMessage(conversationId, lastUserMsg.content, { 
-      createUserMessage: false,
-      previousTraceId,
+    // 只删除目标 AI 后面的消息，保留目标 AI 本身
+    store.removeMessagesFrom(aiIndex + 1)
+
+    // 清除目标 AI 旧的运行时状态
+    store.clearMessageState(messageId)
+
+    // 把原 AI 消息重置成等待生成状态
+    store.updateMessage(messageId, {
+      content: '',
+      thinking: '',
+      toolCalls: [],
+      toolResults: [],
+      toolInvocations: [],
+      hasError: false,
+      displayState: 'waiting',
     })
+
+    // 使用原 U2 和 A2 的 ID 调用 /api/chat
+    const result = await this.sendMessage(conversationId, userMessage.content, {
+      createUserMessage: false,
+      retry: {
+        userMessageId: userMessage.id,
+        aiMessageId: messageId,
+      },
+    })
+
+    if (result === 'network-error' || result === 'server-error') {
+      // 重试前前端已经清空了 AI、删除了后续分支。
+      // 请求失败后重新加载数据库，恢复真实消息。
+      await this.loadMessages(conversationId)
+    }
   },
 
   /**
@@ -577,17 +624,32 @@ export const ChatService = {
     // 删除从该消息开始的所有消息
     const removed = store.removeMessagesFrom(index)
     const idsToDelete = removed.map((m) => m.id)
-
-    // 后台删除
+    // 等待旧分支删除完成，再发送编辑后的消息
     if (idsToDelete.length > 0) {
-      fetch('/api/messages/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageIds: idsToDelete }),
-      }).catch(console.error)
+      try {
+        const deleteResponse = await fetch('/api/messages/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageIds: idsToDelete }),
+        })
+
+        if (!deleteResponse.ok) {
+          throw new Error(`Delete messages failed: ${deleteResponse.status}`)
+        }
+      } catch (error) {
+        console.error(
+          '[ChatService] Failed to delete messages before edit:',
+          error
+        )
+
+        await this.loadMessages(conversationId)
+        return
+      }
     }
 
     // 发送新内容
-    await this.sendMessage(conversationId, newContent, { createUserMessage: true })
+    await this.sendMessage(conversationId, newContent, {
+      createUserMessage: true,
+    })
   },
 }

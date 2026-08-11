@@ -10,7 +10,8 @@ AI 聊天应用，支持多模型对话、语音交互、文件上传。
 - **认证**: Auth.js v5 (Google/GitHub/邮箱登录)
 - **状态管理**: Zustand
 - **UI**: Tailwind CSS + shadcn/ui
-- **AI**: 硅基流动 API (对话/语音/思考模式)
+- **AI 对话**: DeepSeek 官方 API（流式回复/思考模式）
+- **媒体能力**: 硅基流动 API（可选，语音/图片）
 
 ## 功能
 
@@ -67,8 +68,11 @@ AUTH_GOOGLE_SECRET="your-google-client-secret"
 AUTH_GITHUB_ID="your-github-client-id"
 AUTH_GITHUB_SECRET="your-github-client-secret"
 
-# 硅基流动 API
-SILICONFLOW_API_KEY="your-api-key"
+# DeepSeek 官方 API（聊天必需）
+DEEPSEEK_API_KEY="your-deepseek-api-key"
+
+# 硅基流动 API（可选，仅用于语音和图片）
+SILICONFLOW_API_KEY=""
 ```
 
 ### 数据库

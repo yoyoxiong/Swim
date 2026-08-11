@@ -22,7 +22,7 @@ async function main() {
     create: {
       username: 'admin',
       password: '$2b$10$ZZDSvqWx0BzGArNRULYake0KFEWE674VJEzhM0EJouYuA9pfEAgo.',
-      apiKey: process.env.SILICONFLOW_API_KEY || null,
+      apiKey: process.env.DEEPSEEK_API_KEY || null,
     },
   })
 

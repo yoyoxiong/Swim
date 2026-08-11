@@ -3,4 +3,4 @@
  */
 
 export { createChatCompletion } from './siliconflow'
-export type { ChatMessage, ChatCompletionOptions, SiliconFlowResponse } from './siliconflow'
+export type { ChatMessage, ChatCompletionOptions, DeepSeekResponse } from './siliconflow'

@@ -1,12 +1,12 @@
 /**
- * SiliconFlow AI API 封装
- * 
- * 负责与 SiliconFlow API 的通信
+ * DeepSeek AI API 封装
+ *
+ * 负责与 DeepSeek 官方 API 通信
  */
 
 import { getModelById } from '@/features/chat/constants/models'
 
-const SILICONFLOW_API_URL = 'https://api.siliconflow.cn/v1/chat/completions'
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -19,41 +19,45 @@ export interface ChatCompletionOptions {
   enableThinking?: boolean
   thinkingBudget?: number
   tools?: unknown[]
-  toolChoice?: 'auto' | 'required' | { type: 'function'; function: { name: string } }
+  toolChoice?:
+    | 'auto'
+    | 'required'
+    | { type: 'function'; function: { name: string } }
+  signal?: AbortSignal
 }
 
-export interface SiliconFlowResponse {
+export interface DeepSeekResponse {
   reader: ReadableStreamDefaultReader<Uint8Array>
 }
 
 /**
- * 调用 SiliconFlow Chat Completion API（流式）
+ * 调用 DeepSeek Chat Completion API（流式）
  */
 export async function createChatCompletion(
   apiKey: string,
   options: ChatCompletionOptions
-): Promise<SiliconFlowResponse> {
-  const { model, messages, enableThinking = false, thinkingBudget = 4096, tools, toolChoice } = options
-  
-  const modelInfo = getModelById(model)
-  
+): Promise<DeepSeekResponse> {
+  const {
+    model,
+    messages,
+    signal,
+    enableThinking = false,
+    tools,
+    toolChoice,
+  } = options
+
   // 构建请求体
   const requestBody: Record<string, unknown> = {
     model,
     messages,
     stream: true,
     temperature: 0.7,
-    max_tokens: enableThinking || modelInfo?.isReasoningModel ? 4096 : 1024,
+    max_tokens: getModelById(model)?.maxTokens || 8192,
   }
 
-  // Reasoning 模型：只用 thinking_budget
-  if (modelInfo?.isReasoningModel) {
-    requestBody.thinking_budget = thinkingBudget
-  }
-  // 普通模型支持思考开关：用 enable_thinking + thinking_budget
-  else if (enableThinking && modelInfo?.supportsThinkingToggle) {
-    requestBody.enable_thinking = true
-    requestBody.thinking_budget = thinkingBudget
+  if (enableThinking) {
+    requestBody.thinking = { type: 'enabled' }
+    requestBody.reasoning_effort = 'high'
   }
 
   // 如果提供了 tools，添加到请求中
@@ -63,18 +67,19 @@ export async function createChatCompletion(
     requestBody.tool_choice = toolChoice || 'auto'
   }
 
-  const response = await fetch(SILICONFLOW_API_URL, {
+  const response = await fetch(DEEPSEEK_API_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
+    signal,
   })
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(`SiliconFlow API error: ${response.status} - ${errorText}`)
+    throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`)
   }
 
   const reader = response.body?.getReader()

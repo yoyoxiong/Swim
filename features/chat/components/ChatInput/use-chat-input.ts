@@ -41,14 +41,30 @@ export function useChatInput({ conversationId }: UseChatInputOptions) {
       if (!input.trim() || isSendingMessage) return
 
       const content = input.trim()
-      const attachments = uploadedFiles.length > 0 ? [...uploadedFiles] : undefined
+      const attachments =
+        uploadedFiles.length > 0 ? [...uploadedFiles] : undefined
 
       setInput('')
       setUploadedFiles([])
 
-      await ChatService.sendMessage(conversationId, content, { createUserMessage: true, attachments })
+      const result = await ChatService.sendMessage(conversationId, content, {
+        createUserMessage: true,
+        attachments,
+      })
+
+      if (result === 'network-error') {
+        // 请求根本没有成功发出，恢复用户刚才的输入
+        setInput(content)
+        setUploadedFiles(attachments ?? [])
+
+        toast({
+          title: '发送失败',
+          description: '请检查网络连接后重试',
+          variant: 'destructive',
+        })
+      }
     },
-    [input, isSendingMessage, uploadedFiles, conversationId]
+    [input, isSendingMessage, uploadedFiles, conversationId, toast]
   )
 
   const handleStop = useCallback(() => {
@@ -60,45 +76,48 @@ export function useChatInput({ conversationId }: UseChatInputOptions) {
     setInput(value)
   }, [])
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (!file) return
 
-    e.target.value = ''
+      e.target.value = ''
 
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Upload failed')
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Upload failed')
+        }
+
+        const fileData = await response.json()
+        setUploadedFiles((prev) => [...prev, fileData])
+
+        toast({
+          title: '文件已添加',
+          description: `${fileData.name} (${(fileData.size / 1024).toFixed(1)} KB)`,
+        })
+      } catch (error) {
+        console.error('Upload error:', error)
+        toast({
+          title: '上传失败',
+          description: error instanceof Error ? error.message : '无法上传文件',
+          variant: 'destructive',
+        })
       }
-
-      const fileData = await response.json()
-      setUploadedFiles(prev => [...prev, fileData])
-
-      toast({
-        title: '文件已添加',
-        description: `${fileData.name} (${(fileData.size / 1024).toFixed(1)} KB)`,
-      })
-    } catch (error) {
-      console.error('Upload error:', error)
-      toast({
-        title: '上传失败',
-        description: error instanceof Error ? error.message : '无法上传文件',
-        variant: 'destructive',
-      })
-    }
-  }, [toast])
+    },
+    [toast]
+  )
 
   const handleRemoveFile = useCallback((index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index))
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
   const handleStartRecording = useCallback(async () => {
@@ -131,7 +150,9 @@ export function useChatInput({ conversationId }: UseChatInputOptions) {
     const transcribe = async () => {
       setIsTranscribing(true)
       try {
-        const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' })
+        const audioFile = new File([audioBlob], 'recording.webm', {
+          type: 'audio/webm',
+        })
         const result = await VoiceAPI.speechToText(audioFile)
 
         if (result.text) {
@@ -167,7 +188,7 @@ export function useChatInput({ conversationId }: UseChatInputOptions) {
       if (config.image_size && config.image_size !== '1024x1024') {
         content += `\n图片尺寸：${config.image_size}`
       }
-      
+
       await ChatService.sendMessage(conversationId, content, {
         createUserMessage: true,
       })

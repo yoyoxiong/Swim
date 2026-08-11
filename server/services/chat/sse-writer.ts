@@ -13,7 +13,11 @@ export class SSEWriter {
   private _sessionId: string
   private _closed = false
 
-  constructor(controller: ReadableStreamDefaultController, encoder: TextEncoder, sessionId: string) {
+  constructor(
+    controller: ReadableStreamDefaultController,
+    encoder: TextEncoder,
+    sessionId: string
+  ) {
     this._controller = controller
     this._encoder = encoder
     this._sessionId = sessionId
@@ -22,7 +26,9 @@ export class SSEWriter {
   private _send(data: Record<string, unknown>): void {
     if (this._closed) return
     try {
-      this._controller.enqueue(this._encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+      this._controller.enqueue(
+        this._encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
+      )
     } catch {
       this._closed = true
     }
@@ -38,7 +44,11 @@ export class SSEWriter {
 
   sendToolCall(tc: ToolCall): void {
     let args: Record<string, unknown> = {}
-    try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
+    try {
+      args = JSON.parse(tc.function.arguments)
+    } catch {
+      /* ignore */
+    }
 
     const event: Record<string, unknown> = {
       type: 'tool_call',
@@ -54,12 +64,26 @@ export class SSEWriter {
   }
 
   sendToolProgress(toolCallId: string, progress: number): void {
-    this._send({ type: 'tool_progress', toolCallId, progress, sessionId: this._sessionId })
+    this._send({
+      type: 'tool_progress',
+      toolCallId,
+      progress,
+      sessionId: this._sessionId,
+    })
   }
 
-  sendToolResult(result: { toolCallId: string; name: string; success: boolean; content: string }): void {
+  sendToolResult(result: {
+    toolCallId: string
+    name: string
+    success: boolean
+    content: string
+  }): void {
     let parsed: Record<string, unknown> = {}
-    try { parsed = JSON.parse(result.content) } catch { /* ignore */ }
+    try {
+      parsed = JSON.parse(result.content)
+    } catch {
+      /* ignore */
+    }
 
     const event: Record<string, unknown> = {
       type: 'tool_result',
@@ -84,19 +108,29 @@ export class SSEWriter {
 
   sendComplete(): void {
     if (this._closed) return
-    this._send({ type: 'complete', sessionId: this._sessionId })
-    try { this._controller.enqueue(this._encoder.encode('data: [DONE]\n\n')) } catch { /* ignore */ }
-  }
 
+    this._send({
+      type: 'complete',
+      sessionId: this._sessionId,
+    })
+  }
   close(): void {
     if (this._closed) return
     this._closed = true
-    try { this._controller.close() } catch { /* ignore */ }
+    try {
+      this._controller.close()
+    } catch {
+      /* ignore */
+    }
   }
 
   error(err: unknown): void {
     if (this._closed) return
     this._closed = true
-    try { this._controller.error(err) } catch { /* ignore */ }
+    try {
+      this._controller.error(err)
+    } catch {
+      /* ignore */
+    }
   }
 }

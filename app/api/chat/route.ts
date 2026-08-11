@@ -1,6 +1,6 @@
 /**
  * Chat API Route
- * 
+ *
  * 路由层：只负责请求校验和响应格式
  * 业务逻辑委托给 ChatService
  */
@@ -24,10 +24,13 @@ export async function POST(req: Request) {
     return Response.json({ error: 'User not found' }, { status: 404 })
   }
 
-  const apiKey = user.apiKey || process.env.SILICONFLOW_API_KEY || process.env.OPENAI_API_KEY
+  const apiKey = user.apiKey || process.env.DEEPSEEK_API_KEY
   if (!apiKey) {
     return Response.json(
-      { error: 'API Key not configured. Please set your SiliconFlow API Key in your profile or contact administrator.' },
+      {
+        error:
+          'API Key not configured. Please set DEEPSEEK_API_KEY or configure your API Key in the profile.',
+      },
       { status: 400 }
     )
   }
@@ -40,11 +43,8 @@ export async function POST(req: Request) {
 
   // 4. 调用 ChatService 处理
   try {
-    const { stream, sessionId, conversationId, conversationTitle } = await handleChatRequest(
-      userId,
-      apiKey,
-      body
-    )
+    const { stream, sessionId, conversationId, conversationTitle } =
+      await handleChatRequest(userId, apiKey, body, req.signal)
 
     // 5. 返回 SSE 流响应
     return new Response(stream, {
@@ -63,7 +63,8 @@ export async function POST(req: Request) {
       return Response.json({ error: error.message }, { status: 404 })
     }
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error'
     console.error('Chat API error:', errorMessage)
     return Response.json({ error: errorMessage }, { status: 500 })
   }
