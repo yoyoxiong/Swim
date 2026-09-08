@@ -1,6 +1,6 @@
 /**
  * 资源清理服务
- * 
+ *
  * 负责级联删除会话相关资源（消息、本地图片）
  */
 
@@ -10,14 +10,14 @@ import path from 'path'
 import { MessageRepository } from '@/server/repositories/message.repository'
 import { ConversationRepository } from '@/server/repositories/conversation.repository'
 
-/** 
+/**
  * 图片存储目录
  * 开发环境: public/generated
  * 生产环境: 通过 IMAGE_STORAGE_DIR 环境变量配置
  */
 const IMAGE_STORAGE_DIR = process.env.IMAGE_STORAGE_DIR || 'public/generated'
 
-/** 
+/**
  * 图片 URL 前缀
  * 开发环境: /generated
  * 生产环境: 通过 IMAGE_URL_PREFIX 环境变量配置
@@ -60,11 +60,11 @@ async function deleteLocalImage(url: string): Promise<boolean> {
   // url 格式: {IMAGE_URL_PREFIX}/xxx.png
   const filename = url.replace(`${IMAGE_URL_PREFIX}/`, '')
   const filepath = path.join(process.cwd(), IMAGE_STORAGE_DIR, filename)
-  
+
   if (!existsSync(filepath)) {
     return false
   }
-  
+
   try {
     await unlink(filepath)
     return true
@@ -88,9 +88,19 @@ export async function deleteConversationWithResources(
   }
 
   try {
+    const conversation = await ConversationRepository.findById(
+      conversationId,
+      userId
+    )
+
+    if (!conversation) {
+      result.errors.push('Conversation not found')
+      return result
+    }
     // 1. 获取会话的所有消息
-    const messages = await MessageRepository.findByConversationId(conversationId)
-    
+    const messages =
+      await MessageRepository.findByConversationId(conversationId)
+
     // 2. 收集所有图片 URL
     const imageUrls: string[] = []
     for (const msg of messages) {
@@ -98,7 +108,7 @@ export async function deleteConversationWithResources(
         imageUrls.push(...extractImageUrls(msg.content))
       }
     }
-    
+
     // 3. 删除本地图片
     for (const url of imageUrls) {
       try {
@@ -108,17 +118,17 @@ export async function deleteConversationWithResources(
         result.errors.push(`Failed to delete image: ${url}`)
       }
     }
-    
+
     // 4. 删除数据库消息（通过 Prisma cascade 或手动）
-    const deleteResult = await MessageRepository.deleteByConversationId(conversationId)
+    const deleteResult =
+      await MessageRepository.deleteByConversationId(conversationId)
     result.messagesDeleted = deleteResult.count
-    
+
     // 5. 删除会话记录
     await ConversationRepository.delete(conversationId, userId)
-    
   } catch (e) {
     result.errors.push(`Cascade delete failed: ${(e as Error).message}`)
   }
-  
+
   return result
 }
