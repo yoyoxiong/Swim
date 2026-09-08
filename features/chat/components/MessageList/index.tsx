@@ -20,38 +20,43 @@ export function MessageList() {
   const params = useParams()
   const searchParams = useSearchParams()
   const conversationId = params.conversationId as string
-  
+
   // 从 Store 获取数据
   const messages = useChatStore((s) => s.messages)
   const isSendingMessage = useChatStore((s) => s.isSendingMessage)
   const isLoadingMessages = useChatStore((s) => s.isLoadingMessages)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
-  
+
   // 获取流式消息的内容长度，用于触发滚动
   const streamingContentLength = useChatStore((s) => {
     if (!s.streamingMessageId) return 0
-    const msg = s.messages.find(m => m.id === s.streamingMessageId)
+    const msg = s.messages.find((m) => m.id === s.streamingMessageId)
     if (!msg) return 0
     return (msg.content?.length || 0) + (msg.thinking?.length || 0)
   })
-  
+  const pagination = useChatStore((state) =>
+    state.messagePagination.get(conversationId)
+  )
+
+  const hasMoreMessages = pagination?.hasMore ?? false
+  const isLoadingOlder = pagination?.isLoadingOlder ?? false
   // 滚动容器
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  
+
   // 用户是否主动上滑
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const previousMessagesLength = useRef(0)
   const previousConversationId = useRef<string | null>(null)
-  
+
   // 检查消息数组是否有重复 ID（调试用）
   useEffect(() => {
-    const ids = messages.map(m => m.id)
+    const ids = messages.map((m) => m.id)
     const uniqueIds = new Set(ids)
     if (ids.length !== uniqueIds.size) {
       console.warn('[MessageList] Duplicate message IDs detected!', ids)
     }
   }, [messages])
-  
+
   // TanStack Virtual 配置
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -64,47 +69,88 @@ export function MessageList() {
       if (msg.role === 'user') return 80
       return 150
     },
+    getItemKey: (index) => messages[index]?.id ?? index,
     overscan: 3,
   })
-  
+
   const virtualItems = virtualizer.getVirtualItems()
-  
+
   // ========== 滚动到底部 ==========
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    
+
     container.scrollTop = container.scrollHeight
-    
+
     requestAnimationFrame(() => {
       container.scrollTop = container.scrollHeight
     })
   }, [])
-  
+  const loadOlderMessages = useCallback(async () => {
+    const container = scrollContainerRef.current
+
+    if (!container || !hasMoreMessages || isLoadingOlder) {
+      return
+    }
+
+    // 记录插入消息前的滚动状态
+    const previousScrollHeight = container.scrollHeight
+    const previousScrollTop = container.scrollTop
+
+    const addedCount = await ChatService.loadOlderMessages(conversationId)
+
+    if (addedCount === 0) {
+      return
+    }
+
+    // 等待 React 和虚拟列表完成新一轮渲染
+    requestAnimationFrame(() => {
+      if (scrollContainerRef.current !== container) {
+        return
+      }
+
+      virtualizer.measure()
+
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current !== container) {
+          return
+        }
+
+        const heightDelta = container.scrollHeight - previousScrollHeight
+
+        // 新内容插在顶部，所以把新增高度补回 scrollTop
+        container.scrollTop = previousScrollTop + Math.max(heightDelta, 0)
+      })
+    })
+  }, [conversationId, hasMoreMessages, isLoadingOlder, virtualizer])
+
   // ========== 监听用户滚动 ==========
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    
+
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight
       setUserScrolledUp(distanceFromBottom > 100)
+      if (scrollTop <= 80) {
+        void loadOlderMessages()
+      }
     }
-    
+
     container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [])
-  
+  }, [loadOlderMessages])
+
   // 是否需要在加载完成后滚动
   const shouldScrollAfterLoad = useRef(false)
   // pending message 是否已发送
   const pendingMessageSentRef = useRef(false)
-  
+
   // ========== 切换会话时重置状态 ==========
   useEffect(() => {
     if (!conversationId) return
-    
+
     if (previousConversationId.current !== conversationId) {
       previousConversationId.current = conversationId
       previousMessagesLength.current = 0
@@ -113,39 +159,45 @@ export function MessageList() {
       pendingMessageSentRef.current = false
     }
   }, [conversationId])
-  
+
   // ========== 处理 URL 中的 pending message ==========
   useEffect(() => {
-    console.log('[MessageList] pending check:', { 
-      isLoadingMessages, 
-      conversationId, 
+    console.log('[MessageList] pending check:', {
+      isLoadingMessages,
+      conversationId,
       pendingMessageSent: pendingMessageSentRef.current,
-      msg: searchParams.get('msg')
+      msg: searchParams.get('msg'),
     })
-    
+
     // 等待加载完成
     if (isLoadingMessages) return
     if (pendingMessageSentRef.current) return
     if (!conversationId) return
-    
+
     const pendingMessage = searchParams.get('msg')
     if (!pendingMessage) return
-    
+
     console.log('[MessageList] Sending pending message:', pendingMessage)
     pendingMessageSentRef.current = true
-    
+
     // 清理 URL 参数
     const url = new URL(window.location.href)
     url.searchParams.delete('msg')
     window.history.replaceState({}, '', url.pathname)
-    
+
     // 发送消息
-    ChatService.sendMessage(conversationId, pendingMessage, { createUserMessage: true })
+    ChatService.sendMessage(conversationId, pendingMessage, {
+      createUserMessage: true,
+    })
   }, [isLoadingMessages, conversationId, searchParams])
-  
+
   // ========== 消息加载完成后滚动到底部 ==========
   useEffect(() => {
-    if (shouldScrollAfterLoad.current && !isLoadingMessages && messages.length > 0) {
+    if (
+      shouldScrollAfterLoad.current &&
+      !isLoadingMessages &&
+      messages.length > 0
+    ) {
       shouldScrollAfterLoad.current = false
       // 延迟一下等虚拟列表渲染完
       setTimeout(() => {
@@ -153,16 +205,16 @@ export function MessageList() {
       }, 50)
     }
   }, [isLoadingMessages, messages.length, scrollToBottom])
-  
+
   // ========== 新消息时滚动 ==========
   useEffect(() => {
     if (messages.length === 0) return
-    
+
     const isNewMessage = messages.length > previousMessagesLength.current
     previousMessagesLength.current = messages.length
-    
+
     if (!isNewMessage) return
-    
+
     if (isSendingMessage || !userScrolledUp) {
       if (isSendingMessage) {
         setUserScrolledUp(false)
@@ -170,19 +222,24 @@ export function MessageList() {
       scrollToBottom()
     }
   }, [messages.length, isSendingMessage, userScrolledUp, scrollToBottom])
-  
+
   // ========== 流式更新时滚动 ==========
   useEffect(() => {
     if (!streamingMessageId || userScrolledUp) return
     scrollToBottom()
-  }, [streamingContentLength, streamingMessageId, userScrolledUp, scrollToBottom])
-  
+  }, [
+    streamingContentLength,
+    streamingMessageId,
+    userScrolledUp,
+    scrollToBottom,
+  ])
+
   // 空状态
   if (messages.length === 0 && !isSendingMessage && !isLoadingMessages) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <h1 className="text-[32px] font-normal text-[hsl(var(--text-primary))] mb-8">
+          <h1 className="mb-8 text-[32px] font-normal text-[hsl(var(--text-primary))]">
             我能帮你什么？
           </h1>
         </div>
@@ -193,9 +250,14 @@ export function MessageList() {
   return (
     <div
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto custom-scrollbar-auto"
+      className="custom-scrollbar-auto flex-1 overflow-y-auto"
       style={{ overflowAnchor: 'auto' }}
     >
+      {isLoadingOlder && (
+        <div className="pointer-events-none sticky top-2 z-10 mx-auto w-fit rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow">
+          正在加载更早消息...
+        </div>
+      )}
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
@@ -205,15 +267,18 @@ export function MessageList() {
       >
         {virtualItems.map((virtualItem) => {
           const message = messages[virtualItem.index]
-          
+
           if (!message) {
-            console.warn('[MessageList] Missing message at index:', virtualItem.index)
+            console.warn(
+              '[MessageList] Missing message at index:',
+              virtualItem.index
+            )
             return null
           }
 
           return (
             <div
-              key={`${virtualItem.index}-${message.id}`}
+              key={message.id}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
               style={{

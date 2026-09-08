@@ -15,6 +15,7 @@ import type { Message, FileAttachment } from '@/features/chat/types/chat'
 // 用于取消请求
 let loadAbortController: AbortController | null = null
 let streamAbortController: AbortController | null = null
+let olderMessagesAbortController: AbortController | null = null
 export type SendMessageResult =
   | 'success'
   | 'aborted'
@@ -115,6 +116,11 @@ export const ChatService = {
    */
   async loadMessages(conversationId: string): Promise<void> {
     const store = useChatStore.getState()
+    store.setActiveConversationId(conversationId)
+
+    // 切换或重新加载会话时，取消正在进行的旧消息分页请求
+    olderMessagesAbortController?.abort()
+    olderMessagesAbortController = null
 
     // 如果正在发送消息，不要加载（避免覆盖刚添加的消息）
     if (store.isSendingMessage) {
@@ -127,9 +133,10 @@ export const ChatService = {
       this.abortStream()
     }
 
-    // 取消之前的请求
     loadAbortController?.abort()
-    loadAbortController = new AbortController()
+
+    const controller = new AbortController()
+    loadAbortController = controller
 
     // 检查是否有缓存
     const cached = store.getCachedMessages(conversationId)
@@ -144,12 +151,23 @@ export const ChatService = {
 
     // 后台加载最新数据
     try {
-      const { messages } = await ConversationAPI.getMessages(conversationId)
-
+      const { messages, hasMore, prevCursor } =
+        await ConversationAPI.getMessages(conversationId, {
+          limit: 50,
+          signal: controller.signal,
+        })
+      if (controller.signal.aborted || loadAbortController !== controller) {
+        return
+      }
       // 去重
       const unique = messages.filter(
         (msg, i, arr) => arr.findIndex((m) => m.id === msg.id) === i
       ) as Message[]
+      store.setMessagePagination(conversationId, {
+        hasMore,
+        prevCursor,
+        isLoadingOlder: false,
+      })
 
       // 更新缓存和显示
       store.cacheMessages(conversationId, unique)
@@ -169,11 +187,100 @@ export const ChatService = {
       // 静默失败，保持缓存数据
       console.error('[ChatService] loadMessages failed:', e)
     } finally {
-      loadAbortController = null
-      store.setLoadingMessages(false)
+      // 只有最新请求才能清理全局 controller 和 loading
+      if (loadAbortController === controller) {
+        loadAbortController = null
+        store.setLoadingMessages(false)
+      }
     }
   },
+  /**
+   * 加载当前会话中更早的消息
+   */
+  async loadOlderMessages(conversationId: string): Promise<number> {
+    const store = useChatStore.getState()
+    const pagination = store.getMessagePagination(conversationId)
 
+    // 当前页面已经不是这个会话
+    if (store.activeConversationId !== conversationId) {
+      return 0
+    }
+
+    // 正在加载，或者已经没有更早消息
+    if (
+      !pagination ||
+      pagination.isLoadingOlder ||
+      !pagination.hasMore ||
+      !pagination.prevCursor
+    ) {
+      return 0
+    }
+
+    olderMessagesAbortController?.abort()
+
+    const controller = new AbortController()
+    olderMessagesAbortController = controller
+
+    store.setMessagePagination(conversationId, {
+      isLoadingOlder: true,
+    })
+
+    try {
+      const page = await ConversationAPI.getMessages(conversationId, {
+        limit: 50,
+        cursor: pagination.prevCursor,
+        direction: 'before',
+        signal: controller.signal,
+      })
+
+      const latestStore = useChatStore.getState()
+
+      // 请求已取消，或者用户已经切换到其他会话
+      if (
+        controller.signal.aborted ||
+        latestStore.activeConversationId !== conversationId
+      ) {
+        return 0
+      }
+
+      const existingMessages = latestStore.messages
+      const existingIds = new Set(existingMessages.map((message) => message.id))
+
+      // 理论上分页不会重复，这里仍然做一次防御性去重
+      const olderMessages = page.messages.filter(
+        (message) => !existingIds.has(message.id)
+      ) as Message[]
+
+      const mergedMessages = [...olderMessages, ...existingMessages]
+
+      latestStore.setMessagePagination(conversationId, {
+        hasMore: page.hasMore && olderMessages.length > 0,
+        prevCursor: page.prevCursor,
+      })
+
+      latestStore.cacheMessages(conversationId, mergedMessages)
+
+      latestStore.setMessages(mergedMessages)
+
+      return olderMessages.length
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        return 0
+      }
+
+      console.error('[ChatService] loadOlderMessages failed:', error)
+
+      return 0
+    } finally {
+      if (olderMessagesAbortController === controller) {
+        olderMessagesAbortController = null
+
+        useChatStore.getState().setMessagePagination(conversationId, {
+          isLoadingOlder: false,
+        })
+      }
+    }
+  },
   /**
    * 发送消息
    */
