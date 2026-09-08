@@ -28,6 +28,7 @@ export interface StreamContext {
 type ChatMessage = {
   role: string
   content: string | null
+  reasoning_content?: string
   tool_calls?: ToolCall[]
 }
 
@@ -168,6 +169,7 @@ export function createSSEStreamWithTools(
             {
               role: 'assistant',
               content: roundAnswer || null,
+              reasoning_content: roundThinking || undefined,
               tool_calls: roundToolCalls,
             },
             ...(toolMessages as ChatMessage[]),

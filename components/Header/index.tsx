@@ -67,7 +67,7 @@ export function Header() {
         {conversationId && (
           <ExportButton
             conversationId={conversationId}
-            className="h-9"
+            className="hidden h-9"
           />
         )}
 
@@ -75,7 +75,7 @@ export function Header() {
         {conversationId && (
           <ShareButton
             conversationId={conversationId}
-            className="h-9"
+            className="hidden h-9"
           />
         )}
 
@@ -84,7 +84,7 @@ export function Header() {
           variant="ghost"
           size="icon"
           onClick={() => setAboutDialogOpen(true)}
-          className="h-9 w-9 rounded-lg hover:bg-[hsl(var(--sidebar-hover))]"
+          className="hidden h-9 w-9 rounded-lg hover:bg-[hsl(var(--sidebar-hover))]"
           title="关于"
         >
           <Info className="h-4 w-4" />

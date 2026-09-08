@@ -55,7 +55,7 @@ export function Sidebar({ children, isLeader, className }: SidebarProps) {
           <SkyLogoIcon width={32} height={32} className="shrink-0" />
           {!collapsed && (
             <span className="font-semibold text-lg whitespace-nowrap bg-gradient-to-r from-[#60A5FA] to-[#2563EB] bg-clip-text text-transparent">
-              Sky Chat
+              Swim
             </span>
           )}
         </div>

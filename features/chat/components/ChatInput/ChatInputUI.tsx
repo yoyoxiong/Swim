@@ -428,7 +428,7 @@ export function ChatInputUI({
                 onClick={isRecording ? onStopRecording : onStartRecording}
                 disabled={isTranscribing}
                 className={cn(
-                  'h-8 w-8 rounded-lg',
+                  'hidden h-8 w-8 rounded-lg',
                   isRecording
                     ? 'bg-[hsl(var(--accent-red))]/10 text-[hsl(var(--accent-red))]'
                     : 'hover:bg-[hsl(var(--input-hover))]'
