@@ -3,10 +3,17 @@
  */
 
 import type { Tool } from './types'
-import { generateImage } from '@/server/services/image/siliconflow'
+import { generateImage } from '@/server/services/image/agnes'
 import { downloadAndSave } from '@/server/services/image/storage'
 
-const SUPPORTED_SIZES = ['1024x1024', '512x1024', '768x512', '768x1024', '1024x576', '576x1024'] as const
+const SUPPORTED_SIZES = [
+  '1024x1024',
+  '512x1024',
+  '768x512',
+  '768x1024',
+  '1024x576',
+  '576x1024',
+] as const
 
 /** 进度回调 */
 export type ProgressCallback = (progress: number) => void

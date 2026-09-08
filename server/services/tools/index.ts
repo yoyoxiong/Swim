@@ -5,7 +5,6 @@
 import { ToolRegistry } from './registry'
 import { createWebSearchTool } from './web-search'
 import { createImageGenerationTool } from './image-generation'
-import { isSiliconFlowS3Available } from '@/server/services/image/network-probe'
 
 // 创建全局工具注册表
 const toolRegistry = new ToolRegistry()
@@ -25,15 +24,12 @@ async function initTools(): Promise<void> {
   }
 
   // 注册 generate_image 工具（需要探测网络）
-  if (process.env.SILICONFLOW_API_KEY) {
-    const s3Available = await isSiliconFlowS3Available()
-    if (s3Available) {
-      toolRegistry.register(createImageGenerationTool())
-    } else {
-      console.warn('[Tools] SiliconFlow S3 不可达，generate_image disabled')
-    }
+  if (process.env.AGNES_API_KEY) {
+    toolRegistry.register(createImageGenerationTool())
   } else {
-    console.warn('[Tools] SILICONFLOW_API_KEY not configured, generate_image disabled')
+    console.warn(
+      '[Tools] AGNES_API_KEY not configured, generate_image disabled'
+    )
   }
 }
 
