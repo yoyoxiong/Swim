@@ -2,7 +2,7 @@
 
 /**
  * OAuth Popup Hook - 弹窗 OAuth 登录
- * 
+ *
  * 双重检测机制：
  * 1. postMessage - 弹窗主动通知（快速）
  * 2. session 轮询 - 兜底方案（可靠）
@@ -45,58 +45,62 @@ export function useOAuthPopup(options: UseOAuthPopupOptions = {}) {
     onSuccess?.()
   }, [cleanup, onSuccess])
 
-  const openPopup = useCallback((provider: 'google' | 'github') => {
-    setIsLoading(provider)
-    successCalledRef.current = false
+  const openPopup = useCallback(
+    (provider: 'google' | 'github') => {
+      setIsLoading(provider)
+      successCalledRef.current = false
 
-    const width = 500
-    const height = 600
-    const left = window.screenX + (window.outerWidth - width) / 2
-    const top = window.screenY + (window.outerHeight - height) / 2
+      const width = 500
+      const height = 600
+      const left = window.screenX + (window.outerWidth - width) / 2
+      const top = window.screenY + (window.outerHeight - height) / 2
 
-    const url = `/auth/popup/${provider}`
+      const url = `/auth/popup/${provider}`
 
-    popupRef.current = window.open(
-      url,
-      'oauth-popup',
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
-    )
+      popupRef.current = window.open(
+        url,
+        'oauth-popup',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+      )
 
-    if (!popupRef.current) {
-      cleanup()
-      onError?.('弹窗被阻止，请允许弹窗')
-      return
-    }
-
-    // 方式1: 监听 postMessage（快速响应）
-    messageHandlerRef.current = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return
-      if (event.data?.type === 'oauth-success') {
-        handleSuccess()
-      } else if (event.data?.type === 'oauth-cancelled') {
+      if (!popupRef.current) {
         cleanup()
+        onError?.('弹窗被阻止，请允许弹窗')
+        return
       }
-    }
-    window.addEventListener('message', messageHandlerRef.current)
 
-    // 方式2: 轮询检测弹窗关闭 + session 状态
-    pollRef.current = setInterval(() => {
-      // 防止并发轮询
-      if (isPollingRef.current) return
-      
-      // 弹窗关闭时检查 session
-      if (popupRef.current?.closed) {
-        isPollingRef.current = true
-        getSession().then(session => {
-          if (session) {
-            handleSuccess()
-          } else {
-            cleanup()
-          }
-        })
+      // 方式1: 监听 postMessage（快速响应）
+      messageHandlerRef.current = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return
+        if (event.data?.type === 'oauth-success') {
+          handleSuccess()
+        } else if (event.data?.type === 'oauth-cancelled') {
+          cleanup()
+          onError?.(event.data?.error || 'OAuth 登录失败')
+        }
       }
-    }, 200)
-  }, [cleanup, handleSuccess, onError])
+      window.addEventListener('message', messageHandlerRef.current)
+
+      // 方式2: 轮询检测弹窗关闭 + session 状态
+      pollRef.current = setInterval(() => {
+        // 防止并发轮询
+        if (isPollingRef.current) return
+
+        // 弹窗关闭时检查 session
+        if (popupRef.current?.closed) {
+          isPollingRef.current = true
+          getSession().then((session) => {
+            if (session) {
+              handleSuccess()
+            } else {
+              cleanup()
+            }
+          })
+        }
+      }, 200)
+    },
+    [cleanup, handleSuccess, onError]
+  )
 
   return { openPopup, isLoading }
 }
