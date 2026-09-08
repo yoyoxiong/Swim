@@ -23,7 +23,8 @@ export type ProgressCallback = (progress: number) => void
  */
 export async function executeImageGeneration(
   args: Record<string, unknown>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal
 ): Promise<{ url: string; width: number; height: number }> {
   const prompt = args.prompt as string
   const negativePrompt = args.negative_prompt as string | undefined
@@ -37,11 +38,14 @@ export async function executeImageGeneration(
 
   // 阶段1: 调用 API (0-60%)
   onProgress?.(10)
-  const result = await generateImage({
-    prompt: prompt.trim(),
-    negative_prompt: negativePrompt,
-    image_size: imageSize,
-  })
+  const result = await generateImage(
+    {
+      prompt: prompt.trim(),
+      negative_prompt: negativePrompt,
+      image_size: imageSize,
+    },
+    signal
+  )
   console.log('[ImageGen] API 返回成功')
   onProgress?.(60)
 
@@ -49,8 +53,7 @@ export async function executeImageGeneration(
   onProgress?.(70)
   console.log('[ImageGen] 开始下载:', result.url.substring(0, 80))
   try {
-    const stored = await downloadAndSave(result.url)
-    console.log('[ImageGen] 保存成功:', stored.localUrl)
+    const stored = await downloadAndSave(result.url, signal)
     onProgress?.(100)
 
     return {
@@ -70,13 +73,15 @@ export async function executeImageGeneration(
 export function createImageGenerationTool(): Tool {
   return {
     name: 'generate_image',
-    description: '生成图片。当用户要求生成、创作、画、绘制任何图片时，必须调用此工具。不要用文字描述图片，直接调用工具生成。prompt 必须使用英文，每个请求只调用一次。',
+    description:
+      '生成图片。当用户要求生成、创作、画、绘制任何图片时，必须调用此工具。不要用文字描述图片，直接调用工具生成。prompt 必须使用英文，每个请求只调用一次。',
     parameters: {
       type: 'object',
       properties: {
         prompt: {
           type: 'string',
-          description: '图片描述，必须使用英文。描述要详细，包含主体、风格、光线、构图等。',
+          description:
+            '图片描述，必须使用英文。描述要详细，包含主体、风格、光线、构图等。',
         },
         negative_prompt: {
           type: 'string',
@@ -90,12 +95,17 @@ export function createImageGenerationTool(): Tool {
       },
       required: ['prompt'],
     },
-    execute: async (args) => {
+    execute: async (args, signal) => {
       try {
-        const result = await executeImageGeneration(args)
+        const result = await executeImageGeneration(args, undefined, signal)
         return JSON.stringify(result)
       } catch (error) {
+        if (signal?.aborted) {
+          throw error
+        }
+
         const msg = error instanceof Error ? error.message : '未知错误'
+
         return JSON.stringify({ error: msg })
       }
     },

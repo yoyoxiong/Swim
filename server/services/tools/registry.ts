@@ -1,6 +1,6 @@
 /**
  * 工具注册表
- * 
+ *
  * 管理所有可用工具的注册、查找和执行
  */
 
@@ -36,11 +36,13 @@ export class ToolRegistry implements IToolRegistry {
    */
   register(tool: Tool): void {
     validateTool(tool)
-    
+
     if (this.tools.has(tool.name)) {
-      console.warn(`[ToolRegistry] Tool "${tool.name}" already registered, overwriting`)
+      console.warn(
+        `[ToolRegistry] Tool "${tool.name}" already registered, overwriting`
+      )
     }
-    
+
     this.tools.set(tool.name, tool)
     console.log(`[ToolRegistry] Registered tool: ${tool.name}`)
   }
@@ -70,7 +72,7 @@ export class ToolRegistry implements IToolRegistry {
    * 获取所有工具定义（OpenAI Function Calling 格式）
    */
   getToolDefinitions(): OpenAIToolDefinition[] {
-    return this.getAll().map(tool => ({
+    return this.getAll().map((tool) => ({
       type: 'function' as const,
       function: {
         name: tool.name,
@@ -83,15 +85,19 @@ export class ToolRegistry implements IToolRegistry {
   /**
    * 按名称执行工具
    */
-  async executeByName(name: string, args: Record<string, unknown>): Promise<string> {
+  async executeByName(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<string> {
     const tool = this.get(name)
-    
+
     if (!tool) {
       throw new Error(`Tool "${name}" not found`)
     }
-    
+
     try {
-      return await tool.execute(args)
+      return await tool.execute(args, signal)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       console.error(`[ToolRegistry] Error executing tool "${name}":`, message)

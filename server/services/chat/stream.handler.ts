@@ -4,7 +4,15 @@
 
 import { parseSSELine, splitSSEBuffer } from '@/lib/utils/sse'
 import { createChatCompletion } from '@/server/services/ai/siliconflow'
-import { toolRegistry, type ToolCall } from '@/server/services/tools'
+import {
+  toolRegistry,
+  type ToolCall,
+  type ToolCallResult,
+} from '@/server/services/tools'
+import {
+  registerToolTask,
+  unregisterToolTask,
+} from '@/server/services/tools/tool-task-registry'
 import { formatToolMessages } from '@/server/services/tools/handler'
 import { executeImageGeneration } from '@/server/services/tools/image-generation'
 import { SSEWriter } from './sse-writer'
@@ -33,6 +41,10 @@ export interface StreamContextWithTools extends StreamContext {
 }
 
 const MAX_TOOL_ROUNDS = 5
+interface ToolExecutionContext {
+  userId: string
+  signal?: AbortSignal
+}
 
 /**
  * 创建支持工具调用的 SSE 流（并行执行）
@@ -87,7 +99,11 @@ export function createSSEStreamWithTools(
           } = await processAIResponseWithParallelTools(
             currentReader,
             decoder,
-            writer
+            writer,
+            {
+              userId,
+              signal,
+            }
           )
 
           thinkingContent += roundThinking
@@ -111,13 +127,40 @@ export function createSSEStreamWithTools(
           // 发送工具结果
           for (const result of toolResults) {
             writer.sendToolResult(result)
+
+            const parsedResult = parseJSON(result.content)
+
+            const normalizedResult: Record<string, unknown> = {
+              ...parsedResult,
+              success: result.success,
+              cancelled: result.cancelled ?? false,
+            }
+
+            // 工具原始结果字段叫 url，前端和持久化结构叫 imageUrl
+            if (
+              result.name === 'generate_image' &&
+              typeof parsedResult.url === 'string'
+            ) {
+              normalizedResult.imageUrl = parsedResult.url
+            }
+
             allToolResults.push({
               toolCallId: result.toolCallId,
               name: result.name,
-              result: { success: result.success, ...parseJSON(result.content) },
+              result: normalizedResult,
             })
           }
+          // 用户主动取消工具后，结束本次 AI 编排。
+          // 不再把取消结果交给模型，避免模型自行重新调用工具。
+          const hasCancelledTool = toolResults.some(
+            (result) => result.cancelled === true
+          )
 
+          if (hasCancelledTool) {
+            finalAnswerContent = roundAnswer
+            console.log('[Stream] 工具被用户取消，停止后续工具轮次')
+            break
+          }
           // 构建下一轮消息
           const toolMessages = formatToolMessages(toolResults)
           currentMessages = [
@@ -183,17 +226,13 @@ export function createSSEStreamWithTools(
 async function processAIResponseWithParallelTools(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   decoder: TextDecoder,
-  writer: SSEWriter
+  writer: SSEWriter,
+  executionContext: ToolExecutionContext
 ): Promise<{
   thinkingContent: string
   answerContent: string
   toolCalls: ToolCall[]
-  toolPromises: Promise<{
-    toolCallId: string
-    name: string
-    success: boolean
-    content: string
-  }>[]
+  toolPromises: Promise<ToolCallResult>[]
 }> {
   let buffer = ''
   let thinkingContent = ''
@@ -203,12 +242,7 @@ async function processAIResponseWithParallelTools(
     id?: string
     function?: { name?: string; arguments?: string }
   }> = []
-  const toolPromises: Promise<{
-    toolCallId: string
-    name: string
-    success: boolean
-    content: string
-  }>[] = []
+  const toolPromises: Promise<ToolCallResult>[] = []
   const startedTools = new Set<string>()
 
   while (true) {
@@ -277,7 +311,9 @@ async function processAIResponseWithParallelTools(
                 console.log(
                   `[Stream] 启动工具: ${chunk.function.name}, args: ${args}`
                 )
-                toolPromises.push(startToolExecution(toolCall, writer))
+                toolPromises.push(
+                  startToolExecution(toolCall, writer, executionContext)
+                )
               }
             }
           }
@@ -307,7 +343,7 @@ async function processAIResponseWithParallelTools(
       console.log(
         `[Stream] 延迟启动工具: ${tc.function.name}, args: ${tc.function.arguments}`
       )
-      toolPromises.push(startToolExecution(tc, writer))
+      toolPromises.push(startToolExecution(tc, writer, executionContext))
     }
   }
 
@@ -319,50 +355,91 @@ async function processAIResponseWithParallelTools(
  */
 async function startToolExecution(
   toolCall: ToolCall,
-  writer: SSEWriter
-): Promise<{
-  toolCallId: string
-  name: string
-  success: boolean
-  content: string
-}> {
+  writer: SSEWriter,
+  executionContext: ToolExecutionContext
+): Promise<ToolCallResult> {
   const name = toolCall.function.name
+
   let args: Record<string, unknown> = {}
+
   try {
     args = JSON.parse(toolCall.function.arguments)
   } catch {
-    /* ignore */
+    // 参数解析失败时保留空对象，由工具自身校验
   }
+
+  const toolController = new AbortController()
+
+  const abortFromChatRequest = () => {
+    toolController.abort()
+  }
+
+  if (executionContext.signal?.aborted) {
+    abortFromChatRequest()
+  } else {
+    executionContext.signal?.addEventListener('abort', abortFromChatRequest, {
+      once: true,
+    })
+  }
+
+  registerToolTask(toolCall.id, executionContext.userId, toolController)
 
   try {
     if (name === 'generate_image') {
-      // 图片生成：带进度回调
-      const result = await executeImageGeneration(args, (progress) => {
-        writer.sendToolProgress(toolCall.id, progress)
-      })
+      const result = await executeImageGeneration(
+        args,
+        (progress) => {
+          writer.sendToolProgress(toolCall.id, progress)
+        },
+        toolController.signal
+      )
+
       return {
         toolCallId: toolCall.id,
         name,
         success: true,
         content: JSON.stringify(result),
       }
-    } else {
-      // 其他工具：直接执行
-      const content = await toolRegistry.executeByName(name, args)
-      return { toolCallId: toolCall.id, name, success: true, content }
+    }
+
+    const content = await toolRegistry.executeByName(
+      name,
+      args,
+      toolController.signal
+    )
+
+    return {
+      toolCallId: toolCall.id,
+      name,
+      success: true,
+      content,
     }
   } catch (error) {
-    const msg = error instanceof Error ? error.message : '未知错误'
-    console.error(`[Stream] 工具 ${name} 失败:`, msg)
+    const cancelled = toolController.signal.aborted
+    const message = cancelled
+      ? '工具调用已取消'
+      : error instanceof Error
+        ? error.message
+        : '未知错误'
+
+    console.error(`[Stream] 工具 ${name} 失败:`, message)
+
     return {
       toolCallId: toolCall.id,
       name,
       success: false,
-      content: JSON.stringify({ error: msg }),
+      cancelled,
+      content: JSON.stringify({
+        error: message,
+        cancelled,
+      }),
     }
+  } finally {
+    executionContext.signal?.removeEventListener('abort', abortFromChatRequest)
+
+    unregisterToolTask(toolCall.id, toolController)
   }
 }
-
 function parseJSON(str: string): Record<string, unknown> {
   try {
     return JSON.parse(str)

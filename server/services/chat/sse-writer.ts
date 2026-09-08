@@ -77,6 +77,7 @@ export class SSEWriter {
     name: string
     success: boolean
     content: string
+    cancelled?: boolean
   }): void {
     let parsed: Record<string, unknown> = {}
     try {
@@ -91,6 +92,7 @@ export class SSEWriter {
       name: result.name,
       success: result.success,
       sessionId: this._sessionId,
+      cancelled: result.cancelled ?? false,
     }
 
     if (result.name === 'web_search') {

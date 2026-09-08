@@ -7,11 +7,14 @@
  */
 export interface ToolParameterSchema {
   type: 'object'
-  properties: Record<string, {
-    type: string
-    description: string
-    enum?: string[]
-  }>
+  properties: Record<
+    string,
+    {
+      type: string
+      description: string
+      enum?: string[]
+    }
+  >
   required: string[]
 }
 
@@ -22,7 +25,10 @@ export interface Tool {
   name: string
   description: string
   parameters: ToolParameterSchema
-  execute: (args: Record<string, unknown>) => Promise<string>
+  execute: (
+    args: Record<string, unknown>,
+    signal?: AbortSignal
+  ) => Promise<string>
 }
 
 /**
@@ -66,6 +72,7 @@ export interface ToolCallResult {
   name: string
   content: string
   success: boolean
+  cancelled?: boolean
 }
 
 /**
@@ -84,7 +91,11 @@ export interface IToolRegistry {
   register(tool: Tool): void
   get(name: string): Tool | undefined
   getToolDefinitions(): OpenAIToolDefinition[]
-  executeByName(name: string, args: Record<string, unknown>): Promise<string>
+  executeByName(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<string>
   has(name: string): boolean
   getAll(): Tool[]
 }
@@ -95,8 +106,8 @@ export interface IToolRegistry {
 export interface ToolCallEvent {
   type: 'tool_call'
   name: string
-  query?: string       // web_search 工具的搜索查询
-  prompt?: string      // generate_image 工具的图片描述
+  query?: string // web_search 工具的搜索查询
+  prompt?: string // generate_image 工具的图片描述
   sessionId: string
 }
 
@@ -107,7 +118,7 @@ export interface ToolResultEvent {
   type: 'tool_result'
   name: string
   resultCount?: number // web_search 工具的结果数量
-  imageUrl?: string    // generate_image 工具的图片 URL
+  imageUrl?: string // generate_image 工具的图片 URL
   success: boolean
   sessionId: string
 }

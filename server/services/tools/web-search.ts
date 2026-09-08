@@ -1,6 +1,6 @@
 /**
  * 网页搜索工具
- * 
+ *
  * 使用 Tavily API 进行网页搜索
  */
 
@@ -30,8 +30,21 @@ interface TavilyResponse {
 /**
  * 调用 Tavily API 进行搜索
  */
-async function searchTavily(query: string, apiKey: string): Promise<TavilyResponse> {
+async function searchTavily(
+  query: string,
+  apiKey: string,
+  signal?: AbortSignal
+): Promise<TavilyResponse> {
   const controller = new AbortController()
+  const abortFromCaller = () => controller.abort()
+
+  if (signal?.aborted) {
+    abortFromCaller()
+  } else {
+    signal?.addEventListener('abort', abortFromCaller, {
+      once: true,
+    })
+  }
   const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT)
 
   try {
@@ -57,6 +70,7 @@ async function searchTavily(query: string, apiKey: string): Promise<TavilyRespon
 
     return await response.json()
   } finally {
+    signal?.removeEventListener('abort', abortFromCaller)
     clearTimeout(timeoutId)
   }
 }
@@ -87,7 +101,9 @@ export function formatSearchResults(response: TavilyResponse): string {
     response.results.forEach((result, index) => {
       parts.push(`\n${index + 1}. ${result.title}`)
       parts.push(`   来源: ${result.url}`)
-      parts.push(`   ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}`)
+      parts.push(
+        `   ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}`
+      )
     })
   }
 
@@ -105,11 +121,13 @@ export function extractSearchSources(response: TavilyResponse): SearchSource[] {
   if (!response.results || response.results.length === 0) {
     return []
   }
-  
-  return response.results.slice(0, 5).map(result => ({
+
+  return response.results.slice(0, 5).map((result) => ({
     title: result.title,
     url: result.url,
-    snippet: result.content.substring(0, 100) + (result.content.length > 100 ? '...' : ''),
+    snippet:
+      result.content.substring(0, 100) +
+      (result.content.length > 100 ? '...' : ''),
   }))
 }
 
@@ -119,7 +137,8 @@ export function extractSearchSources(response: TavilyResponse): SearchSource[] {
 export function createWebSearchTool(apiKey: string): Tool {
   return {
     name: 'web_search',
-    description: '搜索互联网获取 2025 年及以后的最新信息。当用户询问实时信息、新闻、最新数据、当前事件时必须使用此工具。',
+    description:
+      '搜索互联网获取 2025 年及以后的最新信息。当用户询问实时信息、新闻、最新数据、当前事件时必须使用此工具。',
     parameters: {
       type: 'object',
       properties: {
@@ -130,7 +149,10 @@ export function createWebSearchTool(apiKey: string): Tool {
       },
       required: ['query'],
     },
-    execute: async (args: Record<string, unknown>): Promise<string> => {
+    execute: async (
+      args: Record<string, unknown>,
+      signal?: AbortSignal
+    ): Promise<string> => {
       const query = args.query as string
 
       if (!query || typeof query !== 'string') {
@@ -138,10 +160,10 @@ export function createWebSearchTool(apiKey: string): Tool {
       }
 
       try {
-        const response = await searchTavily(query, apiKey)
+        const response = await searchTavily(query, apiKey, signal)
         const sources = extractSearchSources(response)
         const content = formatSearchResults(response)
-        
+
         // 返回 JSON 格式，包含内容和来源
         return JSON.stringify({
           content,
@@ -149,10 +171,16 @@ export function createWebSearchTool(apiKey: string): Tool {
           resultCount: response.results?.length || 0,
         })
       } catch (error) {
+        if (signal?.aborted) {
+          throw error
+        }
         if (error instanceof Error) {
           if (error.name === 'AbortError') {
             console.error('[WebSearch] Search timeout')
-            return JSON.stringify({ error: '搜索超时，请稍后重试', sources: [] })
+            return JSON.stringify({
+              error: '搜索超时，请稍后重试',
+              sources: [],
+            })
           }
           console.error('[WebSearch] Search error:', error.message)
           return JSON.stringify({ error: error.message, sources: [] })

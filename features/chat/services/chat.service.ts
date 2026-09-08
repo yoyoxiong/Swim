@@ -58,7 +58,9 @@ export const ChatService = {
       store.updateMessage(messageId, { displayState: 'idle' })
 
       // 保存已接收的内容到数据库
-      const message = store.messages.find((m) => m.id === messageId)
+      const latestStore = useChatStore.getState()
+      const message = latestStore.messages.find((m) => m.id === messageId)
+
       if (message) {
         fetch(`/api/message/${messageId}/save-partial`, {
           method: 'POST',
@@ -555,6 +557,7 @@ export const ChatService = {
               type: 'TOOL_COMPLETE',
               toolCallId: data.toolCallId || '',
               success: data.success ?? false,
+              cancelled: data.cancelled,
               result: {
                 imageUrl: data.imageUrl,
                 resultCount: data.resultCount,
@@ -571,11 +574,14 @@ export const ChatService = {
               if (isMatch) {
                 return {
                   ...inv,
-                  state: data.success
-                    ? ('completed' as const)
-                    : ('failed' as const),
+                  state: data.cancelled
+                    ? ('cancelled' as const)
+                    : data.success
+                      ? ('completed' as const)
+                      : ('failed' as const),
                   result: {
                     success: data.success ?? false,
+                    cancelled: data.cancelled ?? false,
                     imageUrl: data.imageUrl,
                     resultCount: data.resultCount,
                     sources: data.sources,

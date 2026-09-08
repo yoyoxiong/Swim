@@ -1,9 +1,9 @@
 /**
  * Chat Message UI Component - 消息 UI 组件
- * 
+ *
  * 纯展示组件，负责渲染单条消息
  * 根据 role 区分用户消息和 AI 消息的渲染方式
- * 
+ *
  * @module modules/chat-message/ChatMessageUI
  */
 
@@ -13,11 +13,24 @@ import { MessageContent } from '@/features/chat/components/MessageContent'
 import { MessageActions } from '@/features/chat/components/MessageActions'
 import { MessageEdit } from '@/features/chat/components/MessageEdit'
 import { Button } from '@/components/ui/button'
-import { Loader2, Edit2, RotateCw, ChevronDown, ChevronRight, Globe, XCircle } from 'lucide-react'
+import {
+  Loader2,
+  Edit2,
+  RotateCw,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  XCircle,
+} from 'lucide-react'
 import { MarkdownIcon } from '@/components/icons/MarkdownIcon'
 import { TextFileIcon } from '@/components/icons/TextFileIcon'
 import { cn } from '@/lib/utils'
-import type { Message, ToolInvocation, ToolResult, SearchSource } from '@/features/chat/types/chat'
+import type {
+  Message,
+  ToolInvocation,
+  ToolResult,
+  SearchSource,
+} from '@/features/chat/types/chat'
 import type { MessagePhase } from '@/features/chat/types/message-state'
 
 /**
@@ -34,7 +47,9 @@ function WebSearchStatus({ invocation }: { invocation: ToolInvocation }) {
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         <span>搜索中...</span>
         {invocation.args?.query && (
-          <span className="text-xs opacity-70">&quot;{invocation.args.query}&quot;</span>
+          <span className="text-xs opacity-70">
+            &quot;{invocation.args.query}&quot;
+          </span>
         )}
       </div>
     )
@@ -52,36 +67,43 @@ function WebSearchStatus({ invocation }: { invocation: ToolInvocation }) {
 
   // 完成 - 显示来源标签
   const hasSources = sources && sources.length > 0
-  
+
   return (
     <div className="space-y-2">
       {/* 来源标签行 */}
       {hasSources && (
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">来源:</span>
-          {sources.slice(0, isExpanded ? sources.length : 3).map((source, index) => (
-            <a
-              key={index}
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50 hover:bg-muted text-xs transition-colors group"
-            >
-              <Globe className="h-3 w-3 text-muted-foreground" />
-              <span className="text-foreground/80 group-hover:text-foreground max-w-[120px] truncate">
-                {new URL(source.url).hostname.replace('www.', '')}
-              </span>
-            </a>
-          ))}
+          {sources
+            .slice(0, isExpanded ? sources.length : 3)
+            .map((source, index) => (
+              <a
+                key={index}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs transition-colors hover:bg-muted"
+              >
+                <Globe className="h-3 w-3 text-muted-foreground" />
+                <span className="max-w-[120px] truncate text-foreground/80 group-hover:text-foreground">
+                  {new URL(source.url).hostname.replace('www.', '')}
+                </span>
+              </a>
+            ))}
           {sources.length > 3 && (
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               {isExpanded ? (
-                <>收起 <ChevronDown className="h-3 w-3" /></>
+                <>
+                  收起 <ChevronDown className="h-3 w-3" />
+                </>
               ) : (
-                <>+{sources.length - 3} 更多 <ChevronRight className="h-3 w-3" /></>
+                <>
+                  +{sources.length - 3} 更多{' '}
+                  <ChevronRight className="h-3 w-3" />
+                </>
               )}
             </button>
           )}
@@ -95,11 +117,11 @@ function WebSearchStatus({ invocation }: { invocation: ToolInvocation }) {
  * 渲染单个工具调用
  * 图片生成完成后会直接插入到 content 流中，这里只显示 loading 状态
  */
-function ToolInvocationItem({ 
-  invocation, 
+function ToolInvocationItem({
+  invocation,
   _messageId,
-  onCancel 
-}: { 
+  onCancel,
+}: {
   invocation: ToolInvocation
   _messageId?: string
   onCancel?: (toolCallId: string) => void
@@ -108,8 +130,9 @@ function ToolInvocationItem({
   if (invocation.name === 'generate_image') {
     if (invocation.state === 'running' || invocation.state === 'pending') {
       const progress = (invocation as { progress?: number }).progress ?? 0
-      const estimatedTime = (invocation as { estimatedTime?: number }).estimatedTime
-      
+      const estimatedTime = (invocation as { estimatedTime?: number })
+        .estimatedTime
+
       return (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -134,8 +157,8 @@ function ToolInvocationItem({
           </div>
           {/* 进度条 */}
           {progress > 0 && (
-            <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
-              <div 
+            <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div
                 className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
@@ -181,77 +204,106 @@ function ToolResultItem({ result }: { result: ToolResult }) {
 
   // 图片生成结果不在这里渲染，会在 content 的 markdown 中显示
   if (result.name === 'generate_image') {
+    if (result.result.cancelled) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <XCircle className="h-3.5 w-3.5" />
+          <span>图片生成已取消</span>
+        </div>
+      )
+    }
+
+    if (!result.result.success) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <XCircle className="h-3.5 w-3.5" />
+          <span>图片生成失败</span>
+        </div>
+      )
+    }
+
+    // 成功时图片已经在 content 的 image block 中显示
     return null
   }
 
   // 搜索结果 - 简洁的来源标签
-  if (result.name === 'web_search' && result.result.sources && result.result.sources.length > 0) {
+  if (
+    result.name === 'web_search' &&
+    result.result.sources &&
+    result.result.sources.length > 0
+  ) {
     const sources = result.result.sources as SearchSource[]
     return (
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">来源:</span>
-        {sources.slice(0, isExpanded ? sources.length : 3).map((source, index) => (
-          <a
-            key={index}
-            href={source.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50 hover:bg-muted text-xs transition-colors group"
-          >
-            <Globe className="h-3 w-3 text-muted-foreground" />
-            <span className="text-foreground/80 group-hover:text-foreground max-w-[120px] truncate">
-              {new URL(source.url).hostname.replace('www.', '')}
-            </span>
-          </a>
-        ))}
+        {sources
+          .slice(0, isExpanded ? sources.length : 3)
+          .map((source, index) => (
+            <a
+              key={index}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs transition-colors hover:bg-muted"
+            >
+              <Globe className="h-3 w-3 text-muted-foreground" />
+              <span className="max-w-[120px] truncate text-foreground/80 group-hover:text-foreground">
+                {new URL(source.url).hostname.replace('www.', '')}
+              </span>
+            </a>
+          ))}
         {sources.length > 3 && (
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             {isExpanded ? (
-              <>收起 <ChevronDown className="h-3 w-3" /></>
+              <>
+                收起 <ChevronDown className="h-3 w-3" />
+              </>
             ) : (
-              <>+{sources.length - 3} 更多 <ChevronRight className="h-3 w-3" /></>
+              <>
+                +{sources.length - 3} 更多 <ChevronRight className="h-3 w-3" />
+              </>
             )}
           </button>
         )}
       </div>
     )
   }
-  
+
   return null
 }
 
 interface ChatMessageUIProps {
   /** 消息数据 */
   message: Message
-  
+
   /** 消息 ID */
   messageId: string
-  
+
   /** 消息阶段（状态机） */
   phase: MessagePhase
-  
+
   /** 是否正在处理 */
   isProcessing: boolean
-  
+
   /** 是否正在等待响应 */
   isWaitingForResponse: boolean
-  
+
   /** 重试回调 */
   onRetry?: () => void
-  
+
   /** 编辑并重新发送回调 */
   onEdit?: (newContent: string) => void
-  
+
   /** 取消工具执行回调 */
   onCancelTool?: (toolCallId: string) => void
 }
 
 /**
  * 消息 UI 组件
- * 
+ *
  * 渲染单条消息，根据 role 区分样式
  * - user: 右对齐蓝色气泡
  * - assistant: 左对齐，包含 thinking 和 answer 区域
@@ -271,36 +323,36 @@ export function ChatMessageUI({
   // 根据状态机计算显示状态
   const isStreaming = isProcessing
   const isStreamingAnswer = phase === 'answering'
-  
+
   // ============ 用户消息 ============
   if (isUser) {
     return (
-      <div className="w-full py-4 group">
-        <div className="flex justify-end items-start gap-2">
+      <div className="group w-full py-4">
+        <div className="flex items-start justify-end gap-2">
           {/* 编辑按钮（hover显示） */}
           {onEdit && !isEditing && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setIsEditing(true)}
-              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity mt-2"
+              className="mt-2 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
             >
               <Edit2 className="h-4 w-4" />
             </Button>
           )}
 
-          <div className="max-w-[70%] flex flex-col items-end gap-2">
+          <div className="flex max-w-[70%] flex-col items-end gap-2">
             {/* 文件附件标签 */}
             {message.attachments && message.attachments.length > 0 && (
-              <div className="flex flex-wrap gap-2 justify-end">
+              <div className="flex flex-wrap justify-end gap-2">
                 {message.attachments.map((file, index) => (
                   <div
                     key={index}
                     className={cn(
-                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs",
+                      'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs',
                       file.type === 'md'
-                        ? "bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
-                        : "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+                        ? 'border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20'
+                        : 'border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
                     )}
                   >
                     {file.type === 'md' ? (
@@ -308,20 +360,24 @@ export function ChatMessageUI({
                     ) : (
                       <TextFileIcon className="h-3 w-3 text-blue-500" />
                     )}
-                    <span className={cn(
-                      "font-medium",
-                      file.type === 'md'
-                        ? "text-orange-700 dark:text-orange-300"
-                        : "text-blue-700 dark:text-blue-300"
-                    )}>
+                    <span
+                      className={cn(
+                        'font-medium',
+                        file.type === 'md'
+                          ? 'text-orange-700 dark:text-orange-300'
+                          : 'text-blue-700 dark:text-blue-300'
+                      )}
+                    >
                       {file.name}
                     </span>
-                    <span className={cn(
-                      "text-xs",
-                      file.type === 'md'
-                        ? "text-orange-500 dark:text-orange-400"
-                        : "text-blue-500 dark:text-blue-400"
-                    )}>
+                    <span
+                      className={cn(
+                        'text-xs',
+                        file.type === 'md'
+                          ? 'text-orange-500 dark:text-orange-400'
+                          : 'text-blue-500 dark:text-blue-400'
+                      )}
+                    >
                       {(file.size / 1024).toFixed(1)}KB
                     </span>
                   </div>
@@ -341,7 +397,7 @@ export function ChatMessageUI({
               />
             ) : (
               <div className="rounded-3xl bg-[hsl(var(--message-user-bg))] px-5 py-3">
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words text-[hsl(var(--text-primary))]">
+                <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[hsl(var(--text-primary))]">
                   {message.content}
                 </div>
               </div>
@@ -351,88 +407,90 @@ export function ChatMessageUI({
       </div>
     )
   }
-  
+
   // ============ AI 消息 ============
 
   // 根据 displayState 决定显示内容
-  const showWaitingIndicator = !isProcessing && !message.thinking && !message.content && message.displayState === 'waiting'
-  const showErrorIndicator = (phase === 'error' || message.hasError) && !message.content
+  const showWaitingIndicator =
+    !isProcessing &&
+    !message.thinking &&
+    !message.content &&
+    message.displayState === 'waiting'
+  const showErrorIndicator =
+    (phase === 'error' || message.hasError) && !message.content
 
   return (
     <div className="w-full py-6">
-        <div className="space-y-4">
-          {/* Waiting 状态：等待响应 */}
-          {showWaitingIndicator && (
-            <div className="flex items-center gap-2 text-[hsl(var(--text-secondary))]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">等待响应...</span>
-            </div>
-          )}
+      <div className="space-y-4">
+        {/* Waiting 状态：等待响应 */}
+        {showWaitingIndicator && (
+          <div className="flex items-center gap-2 text-[hsl(var(--text-secondary))]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">等待响应...</span>
+          </div>
+        )}
 
-          {/* Error 状态：显示错误提示 */}
-          {showErrorIndicator && (
-            <div className="flex items-center gap-2 text-red-500">
-              <span className="text-sm">生成失败</span>
-            </div>
-          )}
+        {/* Error 状态：显示错误提示 */}
+        {showErrorIndicator && (
+          <div className="flex items-center gap-2 text-red-500">
+            <span className="text-sm">生成失败</span>
+          </div>
+        )}
 
-          {/* 工具调用状态（运行时，支持多个并行） */}
-          {message.toolInvocations?.map((invocation) => (
-            <ToolInvocationItem 
-              key={invocation.toolCallId} 
-              invocation={invocation}
-              _messageId={messageId}
-              onCancel={onCancelTool}
-            />
-          ))}
+        {/* 工具调用状态（运行时，支持多个并行） */}
+        {message.toolInvocations?.map((invocation) => (
+          <ToolInvocationItem
+            key={invocation.toolCallId}
+            invocation={invocation}
+            _messageId={messageId}
+            onCancel={onCancelTool}
+          />
+        ))}
 
-          {/* 工具执行结果（持久化后，从数据库加载） */}
-          {!message.toolInvocations?.length && message.toolResults?.map((result) => (
+        {/* 工具执行结果（持久化后，从数据库加载） */}
+        {!message.toolInvocations?.length &&
+          message.toolResults?.map((result) => (
             <ToolResultItem key={result.toolCallId} result={result} />
           ))}
 
-          {/* Thinking 面板（独立组件，自己订阅状态） */}
-          {message.thinking && (
-            <ThinkingPanel
-              messageId={messageId}
-              defaultExpanded={true}
-            />
-          )}
+        {/* Thinking 面板（独立组件，自己订阅状态） */}
+        {message.thinking && (
+          <ThinkingPanel messageId={messageId} defaultExpanded={true} />
+        )}
 
-          {/* Answer 内容 */}
-          {message.content && (
-            <div className="prose-container">
-              <MessageContent
-                content={message.content}
-                isStreaming={isStreamingAnswer}
-              />
-            </div>
-          )}
-
-          {/* 操作按钮 */}
-          {isStreaming && onRetry ? (
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onRetry}
-                className="h-7 w-7 hover:bg-gray-100 dark:hover:bg-gray-800"
-                title="重试"
-              >
-                <RotateCw className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : message.content ? (
-            <MessageActions
+        {/* Answer 内容 */}
+        {message.content && (
+          <div className="prose-container">
+            <MessageContent
               content={message.content}
-              messageId={message.id}
-              role={message.role as 'user' | 'assistant'}
-              hasError={message.hasError}
-              onRetry={onRetry}
+              isStreaming={isStreamingAnswer}
             />
-          ) : null}
+          </div>
+        )}
+
+        {/* 操作按钮 */}
+        {isStreaming && onRetry ? (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRetry}
+              className="h-7 w-7 hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="重试"
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : message.content ? (
+          <MessageActions
+            content={message.content}
+            messageId={message.id}
+            role={message.role as 'user' | 'assistant'}
+            hasError={message.hasError}
+            onRetry={onRetry}
+          />
+        ) : null}
       </div>
     </div>
   )
 }
-
