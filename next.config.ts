@@ -6,8 +6,9 @@ const withBundleAnalyzer = bundleAnalyzer({
 })
 
 const nextConfig: NextConfig = {
-  // Docker 部署用 standalone 模式
-  output: 'standalone',
+  // Docker 构建使用 standalone；
+  // Windows 本地构建使用 Next.js 默认输出
+  output: process.env.BUILD_STANDALONE === 'true' ? 'standalone' : undefined,
 
   images: {
     remotePatterns: [
@@ -26,9 +27,12 @@ const nextConfig: NextConfig = {
 
   // 生产环境移除 console.log
   compiler: {
-    removeConsole: process.env.NODE_ENV === 'production' ? {
-      exclude: ['error', 'warn'], // 保留 console.error 和 console.warn
-    } : false,
+    removeConsole:
+      process.env.NODE_ENV === 'production'
+        ? {
+            exclude: ['error', 'warn'], // 保留 console.error 和 console.warn
+          }
+        : false,
   },
 }
 

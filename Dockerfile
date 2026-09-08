@@ -28,6 +28,7 @@ ENV DATABASE_URL="postgresql://placeholder:placeholder@placeholder:5432/placehol
 RUN npx prisma generate
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BUILD_STANDALONE=true
 RUN pnpm build
 
 # ================================
